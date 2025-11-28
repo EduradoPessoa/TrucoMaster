@@ -1,0 +1,5 @@
+{
+  "name": "Truco Master AI",
+  "description": "Um jogo de Truco Paulista completo onde você desafia o computador. O oponente é alimentado pelo Google Gemini com três personalidades distintas: Responsável, Normal e Porra Louca.",
+  "requestFramePermissions": []
+}
