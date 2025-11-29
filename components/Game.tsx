@@ -83,7 +83,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
     lastTrucoPlayer: null,
     phase: GamePhase.DEALING,
     aiTaunt: null,
-    difficulty
+    difficulty,
+    isBettingLocked: false
   });
 
   const [notification, setNotification] = useState<string | null>(null);
@@ -134,7 +135,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
       lastTrucoPlayer: null,
       phase: GamePhase.PLAYER_TURN, 
       turn: (prev.scorePlayer + prev.scoreAI) % 2 === 0 ? 'player' : 'ai',
-      aiTaunt: null
+      aiTaunt: null,
+      isBettingLocked: false
     }));
     
     // Play Vira sound slightly after the state updates to sync with animation
@@ -401,10 +403,23 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
 
   const handlePlayerTruco = () => {
     if (gameState.phase !== GamePhase.PLAYER_TURN || gameState.turn !== 'player') return;
-    if (gameState.lastTrucoPlayer === 'player') {
-       showNotification("Você não pode aumentar sua própria aposta!");
+    
+    // Mão de 11 Rule Check
+    if (gameState.scorePlayer >= 11) {
+       showNotification("Mão de 11! Proibido pedir Truco.");
        return;
     }
+
+    if (gameState.lastTrucoPlayer === 'player') {
+       showNotification("Aguarde o oponente aumentar!");
+       return;
+    }
+
+    if (gameState.isBettingLocked) {
+        showNotification("Aposta travada! Não é possível aumentar.");
+        return;
+    }
+
     const nextVal = getAvailableTrucoAction(gameState.currentStakes);
     if (!nextVal) return;
 
@@ -430,16 +445,27 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
     const move = await getAIMove({ ...gameState, currentStakes: value }); 
     
     let action = move.action;
+    
+    // Security check: AI can't Raise if it has 11 points
+    if ((action === 'RAISE' || action === 'TRUCO') && gameState.scoreAI >= 11) {
+        action = 'PLAY'; // Fallback to play/accept logic logic below catches PLAY as weird response?
+        // Actually, for response, PLAY is invalid. It should be ACCEPT or RUN.
+        // Let's randomize accept/run if it tried to illegally raise
+        action = Math.random() > 0.5 ? 'ACCEPT' : 'RUN';
+    }
+
     if (action === 'PLAY') action = Math.random() > 0.5 ? 'ACCEPT' : 'RUN';
 
     setGameState(prev => ({ ...prev, aiTaunt: move.taunt }));
 
     if (action === 'ACCEPT') {
+        // Accepting LOCKS the betting for the rest of the hand
         setGameState(prev => ({
             ...prev,
             currentStakes: value as TrucoValue,
             lastTrucoPlayer: 'player',
-            phase: GamePhase.PLAYER_TURN 
+            phase: GamePhase.PLAYER_TURN,
+            isBettingLocked: true
         }));
         showNotification("Computador aceitou!", 1000);
     } else if (action === 'RUN') {
@@ -457,11 +483,13 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
              }));
              showNotification(`Computador pediu ${nextNextVal === 6 ? 'MEIO PAU (6)' : nextNextVal}! Aceita?`);
         } else {
+            // Cannot raise further (12)
             setGameState(prev => ({
                 ...prev,
                 currentStakes: value as TrucoValue,
                 lastTrucoPlayer: 'player',
-                phase: GamePhase.PLAYER_TURN
+                phase: GamePhase.PLAYER_TURN,
+                isBettingLocked: true
             }));
         }
     }
@@ -469,6 +497,17 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
   };
 
   const handleAIProposeTruco = () => {
+      // Mão de 11 Check for AI
+      if (gameState.scoreAI >= 11) {
+          isAIProcessing.current = false;
+          return;
+      }
+      
+      if (gameState.isBettingLocked) {
+          isAIProcessing.current = false;
+          return;
+      }
+
       const nextVal = getAvailableTrucoAction(gameState.currentStakes);
       if(!nextVal) {
           isAIProcessing.current = false;
@@ -495,11 +534,18 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
               currentStakes: pendingValue as TrucoValue,
               lastTrucoPlayer: 'ai',
               phase: GamePhase.PLAYER_TURN,
-              turn: 'ai' 
+              turn: 'ai',
+              isBettingLocked: true // Lock bets after acceptance
           }));
       } else if (response === 'RUN') {
           resolveHand('ai');
       } else if (response === 'RAISE') {
+           // Mão de 11 check for player responding with a raise
+           if (gameState.scorePlayer >= 11) {
+                showNotification("Mão de 11! Você não pode aumentar.");
+                return;
+           }
+
            playSound('truco');
            const nextNextVal = getAvailableTrucoAction(pendingValue);
            if (!nextNextVal) return;
@@ -535,8 +581,15 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
     )
   }
 
+  // LOGIC FOR VISIBILITY OF TRUCO BUTTON
+  // 1. Must be player's turn to play (not responding to Truco)
+  // 2. Player cannot have raised last
+  // 3. Stakes must be < 12 (actually < 6 as per new rule, but strict check is !isBettingLocked)
+  // 4. Player score must be < 11 (Rule of 11)
+  // 5. Betting is not locked
   const isPlayerTurn = gameState.turn === 'player' && gameState.phase === GamePhase.PLAYER_TURN;
   const isTrucoResponse = gameState.phase === GamePhase.TRUCO_PROPOSAL_AI;
+  const canCallTruco = isPlayerTurn && gameState.lastTrucoPlayer !== 'player' && gameState.currentStakes < 6 && !gameState.isBettingLocked && gameState.scorePlayer < 11;
 
   return (
     <div className="flex flex-col h-screen w-full relative overflow-hidden">
@@ -560,7 +613,7 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
            <span className="text-xs uppercase tracking-widest text-gray-300">Computador</span>
            <div className="flex gap-1 mt-1">
              {[...Array(gameState.scoreAI)].map((_, i) => (
-               <div key={i} className="w-2 h-6 bg-red-500 rounded-sm shadow-sm" />
+               <div key={i} className={`w-2 h-6 rounded-sm shadow-sm ${i >= 10 ? 'bg-purple-500 animate-pulse' : 'bg-red-500'}`} />
              ))}
              <span className="ml-2 text-xl font-bold">{gameState.scoreAI}</span>
            </div>
@@ -599,7 +652,7 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
                 <span className="text-xs uppercase tracking-widest text-gray-300">Você</span>
                 <div className="flex gap-1 mt-1">
                     {[...Array(gameState.scorePlayer)].map((_, i) => (
-                    <div key={i} className="w-2 h-6 bg-blue-500 rounded-sm shadow-sm" />
+                    <div key={i} className={`w-2 h-6 rounded-sm shadow-sm ${i >= 10 ? 'bg-purple-500 animate-pulse' : 'bg-blue-500'}`} />
                     ))}
                     <span className="ml-2 text-xl font-bold">{gameState.scorePlayer}</span>
                 </div>
@@ -660,35 +713,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
       {/* Player Area */}
       <div className="flex-1 flex flex-col justify-end pb-8 relative">
           
-          {/* Controls */}
-          {isTrucoResponse ? (
-             <div className="absolute top-0 left-0 right-0 flex justify-center gap-4 z-30">
-                 <button onClick={() => playerRespondToTruco('ACCEPT')} className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-full font-bold shadow-lg flex items-center gap-2">
-                     <CheckCircleIcon className="w-5 h-5"/> Aceitar
-                 </button>
-                 <button onClick={() => playerRespondToTruco('RUN')} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg flex items-center gap-2">
-                     <XCircleIcon className="w-5 h-5"/> Correr
-                 </button>
-                 <button onClick={() => playerRespondToTruco('RAISE')} className="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded-full font-bold shadow-lg flex items-center gap-2">
-                     <ArrowPathIcon className="w-5 h-5"/> Aumentar
-                 </button>
-             </div>
-          ) : (
-            <div className="absolute top-0 left-0 right-0 flex justify-center pointer-events-none">
-                 {isPlayerTurn && gameState.lastTrucoPlayer !== 'player' && gameState.currentStakes < 12 && (
-                    <button 
-                        onClick={handlePlayerTruco}
-                        className="pointer-events-auto bg-yellow-500 hover:bg-yellow-400 text-black px-8 py-2 rounded-full font-display font-bold shadow-xl border-b-4 border-yellow-700 active:border-b-0 active:translate-y-1 transition-all flex items-center gap-2 animate-pulse"
-                    >
-                        <HandRaisedIcon className="w-6 h-6" /> 
-                        {gameState.currentStakes === 1 ? 'TRUCO!' : gameState.currentStakes === 3 ? 'SEIS!' : gameState.currentStakes === 6 ? 'NOVE!' : 'DOZE!'}
-                    </button>
-                 )}
-            </div>
-          )}
-
           {/* Hand */}
-          <div className="flex justify-center items-end gap-[-20px] h-40">
+          <div className="flex justify-center items-end gap-[-20px] h-40 z-10">
               {gameState.player.hand.map((card, idx) => (
                   <div key={card.id} className={`relative group transition-transform hover:-translate-y-4 ${isPlayerTurn ? 'cursor-pointer' : 'opacity-80'}`} style={{ transform: `rotate(${(idx - 1) * 5}deg) translateY(${Math.abs(idx-1)*5}px)` }}>
                       <Card 
@@ -713,8 +739,55 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
                   </div>
               ))}
           </div>
+
+          {/* Controls - Repositioned Below Cards */}
+          <div className="min-h-[60px] flex items-center justify-center z-30 my-4">
+              {isTrucoResponse ? (
+                 <div className="flex justify-center gap-4 animate-bounce-in">
+                     <button onClick={() => playerRespondToTruco('ACCEPT')} className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-full font-bold shadow-lg flex items-center gap-2 transform hover:scale-105 transition">
+                         <CheckCircleIcon className="w-5 h-5"/> Aceitar
+                     </button>
+                     <button onClick={() => playerRespondToTruco('RUN')} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-full font-bold shadow-lg flex items-center gap-2 transform hover:scale-105 transition">
+                         <XCircleIcon className="w-5 h-5"/> Correr
+                     </button>
+                     {/* 
+                         Only show Raise button if:
+                         1. Player Score < 11 (Rule of 11)
+                         2. Stakes < 6 (Max raise rule) 
+                     */}
+                     {gameState.scorePlayer < 11 && gameState.currentStakes < 6 && (
+                        <button onClick={() => playerRespondToTruco('RAISE')} className="bg-yellow-600 hover:bg-yellow-500 text-white px-6 py-2 rounded-full font-bold shadow-lg flex items-center gap-2 transform hover:scale-105 transition">
+                            <ArrowPathIcon className="w-5 h-5"/> Aumentar
+                        </button>
+                     )}
+                 </div>
+              ) : (
+                <div className="flex justify-center flex-col items-center">
+                     {gameState.scorePlayer === 11 && gameState.currentStakes < 6 && isPlayerTurn && (
+                         <div className="text-xs text-yellow-300 font-bold mb-2 bg-black/40 px-3 py-1 rounded-full border border-yellow-500/30 flex items-center gap-1">
+                            <span className="text-lg">🔒</span> Mão de 11: Truco Bloqueado
+                         </div>
+                     )}
+                     
+                     {/* 
+                        BUTTON ADDITION/REFINEMENT: 
+                        Visible ONLY when player turn, score allows, and stakes allow.
+                        Pulsing animation added for visibility.
+                     */}
+                     {canCallTruco && (
+                        <button 
+                            onClick={handlePlayerTruco}
+                            className="bg-yellow-500 hover:bg-yellow-400 text-black px-10 py-3 rounded-full font-display font-bold text-xl shadow-[0_4px_0_rgb(161,98,7)] active:shadow-none active:translate-y-1 transition-all flex items-center gap-2 animate-pulse transform hover:scale-105"
+                        >
+                            <HandRaisedIcon className="w-7 h-7" /> 
+                            {gameState.currentStakes === 1 ? 'TRUCO!' : 'PEDIR SEIS!'}
+                        </button>
+                     )}
+                </div>
+              )}
+          </div>
           
-          <div className="h-8 flex justify-center items-center mt-2">
+          <div className="h-8 flex justify-center items-center">
              {notification && <span className="bg-black/60 px-4 py-1 rounded-full text-sm font-bold text-white animate-fade-in-up">{notification}</span>}
           </div>
       </div>

@@ -80,6 +80,7 @@ export interface GameState {
   phase: GamePhase;
   aiTaunt: string | null;
   difficulty: AILevel;
+  isBettingLocked?: boolean;
 }
 
 export interface AIMoveResponse {

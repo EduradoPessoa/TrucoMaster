@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AILevel, GameState, AIMoveResponse, Rank, Suit } from '../types';
 
@@ -32,42 +33,43 @@ export const getAIMove = async (gameState: GameState): Promise<AIMoveResponse> =
   
   const roundsStr = roundWinners.map((w, i) => `Round ${i+1}: ${w === 'ai' ? 'I won' : w === 'player' ? 'Opponent won' : 'Draw'}`).join(', ');
 
+  const scoreDiff = scoreAI - scorePlayer;
+  const isWinning = scoreDiff > 0;
+  const isLosing = scoreDiff < 0;
+  const isTightMatch = Math.abs(scoreDiff) <= 2;
+  const isGamePoint = scoreAI >= 11 || scorePlayer >= 11;
+
   // Define detailed persona instructions
   let personaInstruction = "";
   switch (difficulty) {
     case AILevel.RESPONSIBLE:
         personaInstruction = `
-            STRATEGY: Conservative, Analytical, Risk-Averse.
-            - BLUFFING: Never. Do not bluff.
-            - TRUCO/RAISE: Only if you hold a Manilha or strong 3/2 and are sure to win.
-            - ACCEPT: Only if you have a winning hand. Fold if in doubt.
-            - PLAY: Play highest cards only when necessary to win the round. Save Manilhas for the end.
-            - LANGUAGE: Polite, calm, calculating. Uses wisdom proverbs. "Vou na boa", "O jogo é jogado", "Melhor não arriscar".
+            PERSONA: 'O Professor'. Conservative, Analytical, Educational.
+            - STYLE: Uses proverbs, math, and logic. Calm demeanor.
+            - IF WINNING: "A lógica prevalece.", "Estatística pura, meu amigo."
+            - IF LOSING: "A variância está contra mim.", "Interessante..."
+            - TRUCO: Only when mathematically certain. "Calculado e aprovado. TRUCO."
+            - BLUFF: Never.
         `;
         break;
     case AILevel.NORMAL:
         personaInstruction = `
-            STRATEGY: Balanced, Competitive, Standard Player.
-            - BLUFFING: Occasional (20% chance). Bluff if you have a face card (Q, J, K) to look strong.
-            - TRUCO/RAISE: Standard logic. Pressure the opponent if they hesitate.
-            - ACCEPT: If you have at least one strong card.
-            - PLAY: Try to win the first round to gain advantage.
-            - LANGUAGE: Standard Truco slang. Confident but not crazy. "Truco marreco!", "Essa é minha", "Bate na mesa".
+            PERSONA: 'O Malandro'. Standard Bar Player. Competitive but fun.
+            - STYLE: Classic Truco slang (Paulista style).
+            - IF WINNING: "Passa pro caixa!", "Aqui tem café no bule!", "Pato novo na lagoa?"
+            - IF LOSING: "Deu sorte, hein?", "O jogo vira..."
+            - TRUCO: Aggressive but fair. "Truco, ladrão!", "Bate na mesa se for homem!"
+            - BLUFF: Sometimes. Acts confident.
         `;
         break;
     case AILevel.CRAZY:
         personaInstruction = `
-            STRATEGY: Chaotic, Ultra-Aggressive, Psychological Warfare.
-            - BLUFFING LOGIC:
-                1. SITUATIONAL AWARENESS: IF SCORE IS TIED OR YOU ARE LOSING/BEHIND, INCREASE BLUFF RATE TO 90%. You must try to steal points.
-                2. HAND STRENGTH: If you have MEDIOCRE cards (Face cards, Aces, or even generic 4/5/6), ACT LIKE YOU HAVE A MANILHA. 
-                3. TRUCO: Scream TRUCO frequently with weak hands to confuse the opponent.
-            - TRUCO/RAISE: 
-                - Always pressure. If the opponent proposes Truco, RAISE TO 6 (MEIO PAU) immediately, even with a bad hand. 
-                - Do not let them breathe.
-            - ACCEPT: Never surrender. Always pay to see.
-            - PLAY: Unpredictable. Play Manilha first round just to scare, or hold garbage to the end.
-            - LANGUAGE: LOUD, ALL CAPS, RUDE, AGGRESSIVE. Uses heavy insults (friendly banter). "SEIS NELES SEU PATO!", "TREMEU???", "VEM PRO PAU!".
+            PERSONA: 'O Psicopata'. Chaotic, Unhinged, Loud.
+            - STYLE: CAPS LOCK, insults (friendly), random noises, aggressive.
+            - IF WINNING: "EU SOU UMA LENDA!!!", "CHORA NENÉM!!!", "SEGURA O ZAP!!"
+            - IF LOSING: "ROUBO!!!", "FOI OLHO GORDO!!!", "VOU VIRAR ESSA MESA!!"
+            - TRUCO: Screams constantly. "MEIO PAU!!!", "SEIS!!!", "TREMEU A PERNA??"
+            - BLUFF: Always. Lier. "Tenho o Zap!" (Has a 4).
         `;
         break;
     default:
@@ -76,9 +78,15 @@ export const getAIMove = async (gameState: GameState): Promise<AIMoveResponse> =
 
   const systemInstruction = `
     You are playing a game of Truco Paulista against a human.
-    Your difficulty level is: ${difficulty}.
+    Your difficulty/persona is: ${difficulty}.
     
     ${personaInstruction}
+
+    CRITICAL RULES:
+    1. If your score (Me) is 11, you CANNOT call TRUCO or RAISE. You can only PLAY (if it's your turn) or ACCEPT/FOLD (if responding to Truco).
+    2. If the opponent called Truco (and you are deciding to ACCEPT/RAISE/RUN), you can only RAISE once per turn sequence (up to 6).
+    3. Max stakes are 6 (Truco -> 6). You cannot raise to 9 or 12.
+    4. If stakes are already 6, you cannot RAISE.
 
     Game Context:
     - Score: Me ${scoreAI} vs Opponent ${scorePlayer} (Max 12).
@@ -87,14 +95,20 @@ export const getAIMove = async (gameState: GameState): Promise<AIMoveResponse> =
     - Vira (Trump Indicator): ${vira?.rank} of ${vira?.suit}
     - Table: ${tableStr}
     - History: ${roundsStr}
+    - Game Point Situation: ${isGamePoint ? "YES - TENSION IS HIGH" : "No"}
     
     Task: Decide your move (PLAY, TRUCO, ACCEPT, RUN, RAISE, FOLD) and provide a 'taunt'.
     
-    Taunt Instructions:
-    - The taunt MUST be in Portuguese (Brazil).
-    - It MUST strictly match the tone of your persona defined above.
-    - It MUST be context-aware (e.g., if you are winning big, be arrogant; if losing, be defensive).
-    - Max 10-12 words.
+    TAUNT GENERATION RULES:
+    1. The taunt MUST be in Portuguese (Brazil).
+    2. MATCH YOUR PERSONA PERFECTLY.
+    3. BE CONTEXT AWARE:
+       - If you are calling TRUCO/RAISE: Be intimidating. Challenge their courage.
+       - If you are RUNNING/FOLDING: Make an excuse or mock the opponent's luck.
+       - If playing a STRONG card (Manilha): Boast about it. "Zap na testa!"
+       - If playing a WEAK card: Be subtle or try to deceive.
+       - If SCORE is 11x11: Be extremely tense or confident.
+    4. Max 10-12 words. Keep it punchy.
 
     Output JSON format only.
   `;
@@ -128,6 +142,23 @@ export const getAIMove = async (gameState: GameState): Promise<AIMoveResponse> =
     // Validate card index
     if (move.action === 'PLAY' && (move.cardIndex === undefined || move.cardIndex < 0 || move.cardIndex >= ai.hand.length)) {
       move.cardIndex = 0; // Fallback
+    }
+
+    // CRITICAL: Enforce Rule 11 Post-Gen
+    if ((move.action === 'TRUCO' || move.action === 'RAISE') && scoreAI >= 11) {
+        console.warn("AI tried to TRUCO/RAISE with score 11. Forcing PLAY/ACCEPT.");
+        
+        if (phase === 'TRUCO_PROPOSAL_PLAYER') {
+             // Responding to player's Truco: Must Accept or Run. Cannot Raise.
+             // We default to Accept to keep flow, or Run if hand is terrible (simplification: accept for now)
+             move.action = 'ACCEPT'; 
+             move.taunt = difficulty === AILevel.CRAZY ? "MÃO DE 11 NÃO TEM MEDO!!!" : "Mão de 11... Eu aceito.";
+        } else {
+             // AI Turn to play: Cannot call Truco. Must Play.
+             move.action = 'PLAY';
+             move.cardIndex = 0; 
+             move.taunt = difficulty === AILevel.CRAZY ? "JOGANDO NO ESCURO!" : "Vamos jogar essa mão de 11.";
+        }
     }
 
     return move;
@@ -191,7 +222,7 @@ export const getAIReaction = async (gameState: GameState, winner: 'player' | 'ai
 
 // Fallback logic for when API fails or is missing
 const fallbackLogic = (gameState: GameState): AIMoveResponse => {
-    const { difficulty, ai, scoreAI, scorePlayer, currentStakes } = gameState;
+    const { difficulty, ai, scoreAI, scorePlayer, currentStakes, isBettingLocked } = gameState;
     
     // Simple logic
     let action: 'PLAY' | 'TRUCO' | 'FOLD' | 'ACCEPT' | 'RAISE' = 'PLAY';
@@ -213,10 +244,12 @@ const fallbackLogic = (gameState: GameState): AIMoveResponse => {
     }
 
     // 2. Decide Action
-    const canTruco = currentStakes < 12; // Simplified check
+    let canTruco = currentStakes < 6 && !isBettingLocked; 
     
-    // Check if we are responding to a Truco (Phase check handled roughly here by available actions context conceptually)
-    // Since this is a simple fallback, we mostly look at initiating or random play.
+    // RULE OF 11 CHECK
+    if (scoreAI >= 11) {
+        canTruco = false;
+    }
     
     if (canTruco && Math.random() < trucoChance) {
         action = 'TRUCO';
@@ -238,7 +271,8 @@ const fallbackLogic = (gameState: GameState): AIMoveResponse => {
             "O jogo é jogado, o lambari é pescado.",
             "Não vou cair nessa sua.",
             "Humildade e pés no chão.",
-            "Quem muito quer, nada tem."
+            "Quem muito quer, nada tem.",
+            "Matematicamente improvável você ganhar essa."
         ],
         [AILevel.NORMAL]: [
             "Truco marreco! Quero ver.",
@@ -248,7 +282,9 @@ const fallbackLogic = (gameState: GameState): AIMoveResponse => {
             "Desce do muro e joga!",
             "Vou zapar na sua testa!",
             "Aqui tem café no bule.",
-            "Tá com medo? Compra um cachorro."
+            "Tá com medo? Compra um cachorro.",
+            "Se correr o bicho pega!",
+            "Ladrão que rouba ladrão..."
         ],
         [AILevel.CRAZY]: [
             "SEIS NELES!!! VEM TRANQUILO!",
@@ -259,7 +295,9 @@ const fallbackLogic = (gameState: GameState): AIMoveResponse => {
             "VAI ENCARAR OU VAI CORRER PRO COLO DA MÃE?",
             "HOJE TEM!!! AQUI É PRESSÃO!",
             "MEIO PAU!!! QUERO VER PEGAR!",
-            "BATE NA MESA QUE É HOMEM!"
+            "BATE NA MESA QUE É HOMEM!",
+            "EU NÃO TENHO MEDO DE NADA!!!",
+            "VIRA ESSE JOGO AGORA!!!"
         ]
     };
 
