@@ -59,7 +59,10 @@ export const calculatePower = (card: CardData, vira: CardData): number => {
   return BASE_ORDER.indexOf(card.rank);
 };
 
-export const determineWinner = (p1: PlayedCard, p2: PlayedCard, vira: CardData): 'player' | 'ai' | 'draw' => {
+export const determineWinner = (p1: PlayedCard | undefined, p2: PlayedCard | undefined, vira: CardData): 'player' | 'ai' | 'draw' => {
+  // Safety guard against undefined cards (race conditions)
+  if (!p1 || !p2) return 'draw';
+
   // Logic for Face Down cards
   if (p1.faceDown && p2.faceDown) return 'draw'; // Both hidden = draw (simplified rule)
   if (p1.faceDown) return p2.player; // Player 1 hid, Player 2 wins

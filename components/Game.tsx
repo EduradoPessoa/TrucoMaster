@@ -7,7 +7,9 @@ import { getAIMove, getAIReaction } from '../services/geminiService';
 import { Card } from './Card';
 import { HistoryLog } from './HistoryLog';
 import { Confetti } from './Confetti';
-import { PlayIcon, HandRaisedIcon, XCircleIcon, CheckCircleIcon, ArrowPathIcon, EyeSlashIcon, ClockIcon } from '@heroicons/react/24/solid';
+import { 
+  PlayIcon, HandRaisedIcon, XCircleIcon, CheckCircleIcon, ArrowPathIcon, EyeSlashIcon, ClockIcon, LockClosedIcon 
+} from '@heroicons/react/24/solid';
 import { playCardSound, playLoseSound, playTrucoSound, playWinSound, playShuffleSound, playViraSound } from '../utils/soundEffects';
 
 const MAX_SCORE = 12;
@@ -259,7 +261,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   };
 
   const handlePlayerPlayCard = (index: number, faceDown: boolean = false) => {
-    if (gameState.turn !== 'player' || gameState.phase !== GamePhase.PLAYER_TURN) return;
+    // Add check for tableCards length to prevent double playing
+    if (gameState.turn !== 'player' || gameState.phase !== GamePhase.PLAYER_TURN || gameState.tableCards.length >= 2) return;
 
     setGameState(prev => {
       const card = prev.player.hand[index];
@@ -281,8 +284,22 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
     await new Promise(r => setTimeout(r, 700));
 
     setGameState(prev => {
-      const pPlayed = prev.tableCards.find(c => c.player === 'player')!;
-      const aiPlayed = prev.tableCards.find(c => c.player === 'ai')!;
+      const pPlayed = prev.tableCards.find(c => c.player === 'player');
+      const aiPlayed = prev.tableCards.find(c => c.player === 'ai');
+      
+      // SAFETY CHECK: If for some reason we don't have one of each, 
+      // likely a race condition or double play occurred. 
+      // We perform a soft reset of the table state to allow game to continue.
+      if (!pPlayed || !aiPlayed) {
+          console.error("Invalid table state for resolution:", prev.tableCards);
+          return {
+              ...prev,
+              tableCards: [],
+              phase: GamePhase.PLAYER_TURN,
+              // Fallback turn: keep same logic as startNewHand roughly
+              turn: (prev.scorePlayer + prev.scoreAI) % 2 === 0 ? 'player' : 'ai' 
+          };
+      }
       
       const roundWinner = determineWinner(pPlayed, aiPlayed, prev.vira!);
 
@@ -291,6 +308,9 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       
       let nextTurn = roundWinner === 'draw' ? prev.roundWinners[0] || 'player' : roundWinner; 
       if (roundWinner === 'draw') {
+         // If it's a draw, the person who played first in this round goes next? 
+         // Standard Truco: If draw, the turn order remains (so whoever started this round starts next).
+         // prev.tableCards[0].player is who started.
          nextTurn = prev.tableCards[0].player; 
       }
 
@@ -329,14 +349,24 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       else if (aiWins === 2) winner = 'ai';
       
       else if (draws > 0) {
+        // Truco rules for draws
+        // 1. Draw in 1st round: Winner of 2nd round wins.
+        // 2. Draw in 2nd round: Winner of 1st round wins.
+        // 3. Draw in 3rd round: Winner of 1st or 2nd round wins.
+        // 4. Three draws: No one wins (rare/impossible with current rules usually) or Hand restart.
+        
         if (prev.roundWinners[0] === 'draw') {
+           // Draw on 1st: check 2nd
            if (prev.roundWinners[1] !== null && prev.roundWinners[1] !== 'draw') winner = prev.roundWinners[1] as 'player' | 'ai';
+           // If 2nd is also draw, check 3rd
            else if (prev.roundWinners[2] !== null) winner = prev.roundWinners[2] as 'player' | 'ai' || prev.roundWinners[1] as 'player'|'ai'; 
         } else {
+           // 1st was not draw.
            if (prev.roundWinners[1] === 'draw') winner = prev.roundWinners[0] as 'player'|'ai';
            else if (prev.roundWinners[2] === 'draw') winner = prev.roundWinners[0] as 'player'|'ai'; 
         }
       } else if (prev.currentRound > 3) {
+         // Should have been caught above, but fallback
          if (pWins > aiWins) winner = 'player';
          else winner = 'ai';
       }
@@ -590,6 +620,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   const isPlayerTurn = gameState.turn === 'player' && gameState.phase === GamePhase.PLAYER_TURN;
   const isTrucoResponse = gameState.phase === GamePhase.TRUCO_PROPOSAL_AI;
   const canCallTruco = isPlayerTurn && gameState.lastTrucoPlayer !== 'player' && gameState.currentStakes < 6 && !gameState.isBettingLocked && gameState.scorePlayer < 11;
+  const isPlayerMao11 = gameState.scorePlayer === 11;
+  const isAIMao11 = gameState.scoreAI === 11;
 
   return (
     <div className="flex flex-col h-screen w-full relative overflow-hidden">
@@ -609,9 +641,12 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
 
       {/* Top Bar: Score & Opponent */}
       <div className="flex justify-between items-center p-4 bg-black/30 backdrop-blur-sm relative z-40">
-        <div className="flex flex-col items-start relative">
-           <span className="text-xs uppercase tracking-widest text-gray-300">Computador</span>
-           <div className="flex gap-1 mt-1">
+        <div className={`flex flex-col items-start relative p-2 rounded-xl transition-all duration-500 ${isAIMao11 ? 'bg-red-500/20 ring-1 ring-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : ''}`}>
+           <div className="flex items-center gap-1 mb-1">
+                <span className="text-xs uppercase tracking-widest text-gray-300">Computador</span>
+                {isAIMao11 && <LockClosedIcon className="w-3 h-3 text-red-400 animate-pulse" title="Mão de 11" />}
+           </div>
+           <div className="flex gap-1">
              {[...Array(gameState.scoreAI)].map((_, i) => (
                <div key={i} className={`w-2 h-6 rounded-sm shadow-sm ${i >= 10 ? 'bg-purple-500 animate-pulse' : 'bg-red-500'}`} />
              ))}
@@ -648,9 +683,12 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
                 <ClockIcon className="w-6 h-6 text-white" />
             </button>
 
-            <div className="flex flex-col items-end relative">
-                <span className="text-xs uppercase tracking-widest text-gray-300">Você</span>
-                <div className="flex gap-1 mt-1">
+            <div className={`flex flex-col items-end relative p-2 rounded-xl transition-all duration-500 ${isPlayerMao11 ? 'bg-yellow-500/20 ring-1 ring-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : ''}`}>
+                <div className="flex items-center gap-1 mb-1">
+                    {isPlayerMao11 && <LockClosedIcon className="w-3 h-3 text-yellow-400 animate-pulse" title="Mão de 11" />}
+                    <span className="text-xs uppercase tracking-widest text-gray-300">Você</span>
+                </div>
+                <div className="flex gap-1">
                     {[...Array(gameState.scorePlayer)].map((_, i) => (
                     <div key={i} className={`w-2 h-6 rounded-sm shadow-sm ${i >= 10 ? 'bg-purple-500 animate-pulse' : 'bg-blue-500'}`} />
                     ))}
