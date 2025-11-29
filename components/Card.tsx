@@ -60,16 +60,18 @@ export const Card: React.FC<CardProps> = ({
         ${className}
       `}
     >
-      <div className={`font-bold font-display ${suitColors[card.suit]}`}>
-        {card.rank}
+      <div className={`font-bold font-display ${suitColors[card.suit]} flex items-center gap-0.5`}>
+        <span>{card.rank}</span>
+        <span className="text-[0.7em]">{suitIcons[card.suit]}</span>
       </div>
       
       <div className={`absolute inset-0 flex items-center justify-center text-4xl ${suitColors[card.suit]}`}>
          {suitIcons[card.suit]}
       </div>
 
-      <div className={`font-bold font-display rotate-180 self-end ${suitColors[card.suit]}`}>
-        {card.rank}
+      <div className={`font-bold font-display rotate-180 self-end ${suitColors[card.suit]} flex items-center gap-0.5`}>
+        <span>{card.rank}</span>
+        <span className="text-[0.7em]">{suitIcons[card.suit]}</span>
       </div>
     </div>
   );

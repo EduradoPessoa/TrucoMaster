@@ -1,14 +1,15 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   GameState, PlayerState, GamePhase, AILevel, TrucoValue, CardData, Suit, Rank, PlayedCard 
 } from '../types';
 import { createDeck, calculatePower, determineWinner, getAvailableTrucoAction } from '../utils/gameLogic';
-import { getAIMove } from '../services/geminiService';
+import { getAIMove, getAIReaction } from '../services/geminiService';
 import { Card } from './Card';
 import { HistoryLog } from './HistoryLog';
 import { Confetti } from './Confetti';
 import { PlayIcon, HandRaisedIcon, XCircleIcon, CheckCircleIcon, ArrowPathIcon, EyeSlashIcon, ClockIcon } from '@heroicons/react/24/solid';
-import { playCardSound, playLoseSound, playTrucoSound, playWinSound } from '../utils/soundEffects';
+import { playCardSound, playLoseSound, playTrucoSound, playWinSound, playShuffleSound, playViraSound } from '../utils/soundEffects';
 
 const MAX_SCORE = 12;
 
@@ -94,11 +95,13 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
   const isAIProcessing = useRef(false);
 
   // Sound effects
-  const playSound = (type: 'card' | 'win' | 'lose' | 'truco') => {
+  const playSound = (type: 'card' | 'win' | 'lose' | 'truco' | 'shuffle' | 'vira') => {
     if (type === 'card') playCardSound();
     if (type === 'win') playWinSound();
     if (type === 'lose') playLoseSound();
     if (type === 'truco') playTrucoSound();
+    if (type === 'shuffle') playShuffleSound();
+    if (type === 'vira') playViraSound();
   };
 
   // --- Helpers ---
@@ -134,6 +137,9 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
       aiTaunt: null
     }));
     
+    // Play Vira sound slightly after the state updates to sync with animation
+    setTimeout(() => playViraSound(), 400);
+
     // Reset AI processing lock
     isAIProcessing.current = false;
   }, []);
@@ -143,7 +149,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
   // Initial Deal
   useEffect(() => {
     if (gameState.phase === GamePhase.DEALING) {
-      setTimeout(startNewHand, 500);
+      playSound('shuffle');
+      setTimeout(startNewHand, 800); // Slightly longer delay to allow shuffle sound
     }
   }, [gameState.phase, startNewHand]);
 
@@ -341,7 +348,7 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
     });
   };
 
-  const resolveHand = (winner: 'player' | 'ai') => {
+  const resolveHand = async (winner: 'player' | 'ai') => {
     // Play win/lose sound
     playSound(winner === 'player' ? 'win' : 'lose');
 
@@ -349,6 +356,16 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
     if (winner === 'player') {
       setShowConfetti(true);
       setTimeout(() => setShowConfetti(false), 4000);
+      
+      // Async call to get AI reaction - does not block state updates
+      // We pass a snapshot of current game state
+      getAIReaction(gameState, 'player').then(reaction => {
+          if (reaction) {
+             setGameState(prev => ({...prev, aiTaunt: reaction}));
+             // Keep the defeat message a bit longer (5s)
+             setTimeout(() => setGameState(prev => ({...prev, aiTaunt: null})), 5000);
+          }
+      });
     }
 
     setGameState(prev => {
