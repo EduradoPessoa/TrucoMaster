@@ -32,6 +32,12 @@ export enum AILevel {
   CRAZY = 'Porra Louca',
 }
 
+export enum UserExperience {
+  BEGINNER = 'Iniciante',
+  INTERMEDIATE = 'Pleno',
+  MASTER = 'Mestre',
+}
+
 export enum GamePhase {
   MENU = 'MENU',
   DEALING = 'DEALING',

@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  GameState, PlayerState, GamePhase, AILevel, TrucoValue, CardData, Suit, Rank, PlayedCard 
+  GameState, PlayerState, GamePhase, AILevel, TrucoValue, CardData, Suit, Rank, PlayedCard, UserExperience 
 } from '../types';
 import { createDeck, calculatePower, determineWinner, getAvailableTrucoAction } from '../utils/gameLogic';
 import { getAIMove, getAIReaction } from '../services/geminiService';
@@ -15,6 +14,7 @@ const MAX_SCORE = 12;
 
 interface GameProps {
   difficulty: AILevel;
+  userExperience: UserExperience;
   onExit: () => void;
 }
 
@@ -66,7 +66,7 @@ const TableCard: React.FC<TableCardProps> = ({ played, index }) => {
   );
 };
 
-export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
+export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }) => {
   const [gameState, setGameState] = useState<GameState>({
     deck: [],
     vira: null,
@@ -722,6 +722,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, onExit }) => {
                         onClick={() => handlePlayerPlayCard(idx, false)}
                         disabled={!isPlayerTurn}
                         isManilha={gameState.vira ? calculatePower(card, gameState.vira) >= 100 : false}
+                        vira={gameState.vira} // Pass Vira for tooltip calculations
+                        showHint={userExperience === UserExperience.BEGINNER} // Show visual hint for beginners
                       />
                       {/* Play Face Down Button - Only available round 2+ and player turn */}
                       {isPlayerTurn && gameState.currentRound >= 2 && (
