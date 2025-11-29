@@ -174,35 +174,60 @@ export const getAIReaction = async (gameState: GameState, winner: 'player' | 'ai
     if (winner === 'ai') return ""; // Only react if AI lost (for now)
 
     const client = getClient();
+    
+    // Fallback if no client or error
     if (!client) {
-        // Fallback reaction logic
         const lastTrick = gameState.trickHistory[gameState.trickHistory.length - 1];
         if (lastTrick && lastTrick.length > 0) {
-            const lastCard = lastTrick.find(c => c.player === 'player')?.card;
-            if (lastCard) return `Ah não! Esse ${lastCard.rank} me quebrou...`;
+            const playerMove = lastTrick.find(c => c.player === 'player');
+            if (playerMove?.card) {
+                return `Não acredito que perdi para um ${playerMove.card.rank}...`;
+            }
         }
-        return "Que sorte a sua...";
+        return "Que azar o meu...";
     }
 
-    const { difficulty, vira, trickHistory } = gameState;
+    const { difficulty, vira, trickHistory, currentStakes, scoreAI, scorePlayer } = gameState;
 
-    // Construct a summary of the last moments
-    const lastRound = trickHistory[trickHistory.length - 1];
-    let lastRoundStr = "Last round cards: ";
-    if (lastRound) {
-        lastRoundStr += lastRound.map(p => `${p.player === 'ai' ? 'Me' : 'Opponent'}: ${p.card.rank}${p.card.suit}`).join(' vs ');
+    // Construct a context of the final showdown
+    const lastTrick = trickHistory[trickHistory.length - 1];
+    let contextStr = `Stakes: ${currentStakes} points. Score: Me ${scoreAI} vs Opponent ${scorePlayer}.\n`;
+    
+    if (lastTrick) {
+        const pCard = lastTrick.find(c => c.player === 'player');
+        const aiCard = lastTrick.find(c => c.player === 'ai');
+        
+        if (pCard && aiCard) {
+            contextStr += `Final Showdown: I played ${aiCard.card.rank} of ${aiCard.card.suit}, Opponent played ${pCard.card.rank} of ${pCard.card.suit} (WINNER).`;
+        } else if (pCard) {
+             contextStr += `Opponent won with ${pCard.card.rank} of ${pCard.card.suit}.`;
+        }
+    } else {
+        contextStr += "I folded or ran away.";
     }
 
     const prompt = `
-        The hand just ended. The HUMAN PLAYER WON. You (the AI) lost.
-        Difficulty/Persona: ${difficulty}.
-        Vira: ${vira?.rank}.
-        ${lastRoundStr}.
+        You are playing Truco Paulista. The hand just ended. 
+        RESULT: You LOST. The Human Player WON.
         
-        Generate a short, bitter, or shocked reaction phrase (in Portuguese) specifically commenting on the card the player used to win or your own bad luck.
-        Example: "Como você tinha esse Zap?!", "Sortudo demais com esse 7!", "Eu achei que meu 3 levava...".
+        Your Persona: ${difficulty}.
+        Vira (Trump Indicator): ${vira?.rank} of ${vira?.suit}.
+        ${contextStr}
+
+        Task: Generate a reaction phrase (in Brazilian Portuguese) to this defeat.
         
-        Max 10 words. Plain text.
+        Guidelines:
+        1. Be specific! Mention the card that beat you if it was strong (like Zap, Espadilha, 7 Copas) or weak (if you bluffed).
+        2. Or criticize your own play ("Why did I play that 3?").
+        3. Or complain about luck/shuffling.
+        4. Matches your persona (Responsible: analytical; Normal: slang; Crazy: loud/angry).
+        5. Max 15 words. Keep it conversational.
+
+        Examples:
+        - "Maldito Zap! Eu não tinha como segurar."
+        - "Perdi para um 4... que vergonha."
+        - "O baralho tá viciado, só pode!"
+        - "Você deu sorte nessa, hein?"
     `;
 
     try {
@@ -211,11 +236,12 @@ export const getAIReaction = async (gameState: GameState, winner: 'player' | 'ai
             contents: prompt,
             config: {
                 responseMimeType: 'text/plain',
-                maxOutputTokens: 20,
+                maxOutputTokens: 30,
             }
          });
          return response.text?.trim() || "Perdi essa...";
     } catch (e) {
+        console.error("AI Reaction Error:", e);
         return "Perdi essa...";
     }
 }

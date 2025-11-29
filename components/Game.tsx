@@ -154,7 +154,7 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   useEffect(() => {
     if (gameState.phase === GamePhase.DEALING) {
       playSound('shuffle');
-      setTimeout(startNewHand, 800); // Slightly longer delay to allow shuffle sound
+      setTimeout(startNewHand, 600); // Reduced from 800ms
     }
   }, [gameState.phase, startNewHand]);
 
@@ -181,8 +181,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       try {
         setGameState(prev => ({ ...prev, phase: GamePhase.AI_THINKING }));
         
-        // Faster thinking: 300ms to 800ms
-        await new Promise(r => setTimeout(r, 300 + Math.random() * 500));
+        // Faster thinking: 200ms to 500ms
+        await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
 
         const move = await getAIMove(gameState);
         
@@ -280,8 +280,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   const resolveTrick = async () => {
     setGameState(prev => ({ ...prev, phase: GamePhase.ROUND_RESULT }));
     
-    // Faster resolution (700ms)
-    await new Promise(r => setTimeout(r, 700));
+    // Faster resolution (500ms)
+    await new Promise(r => setTimeout(r, 500));
 
     setGameState(prev => {
       const pPlayed = prev.tableCards.find(c => c.player === 'player');
@@ -469,8 +469,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
 
     setGameState(prev => ({ ...prev, aiTaunt: "Humm... deixe me pensar..." }));
     
-    // Faster Truco response time
-    await new Promise(r => setTimeout(r, 1000));
+    // Faster Truco response time (600ms)
+    await new Promise(r => setTimeout(r, 600));
 
     const move = await getAIMove({ ...gameState, currentStakes: value }); 
     
