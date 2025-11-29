@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   GameState, PlayerState, GamePhase, AILevel, TrucoValue, CardData, Suit, Rank, PlayedCard, UserExperience 
@@ -154,7 +155,7 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   useEffect(() => {
     if (gameState.phase === GamePhase.DEALING) {
       playSound('shuffle');
-      setTimeout(startNewHand, 600); // Reduced from 800ms
+      setTimeout(startNewHand, 400); // Super fast deal
     }
   }, [gameState.phase, startNewHand]);
 
@@ -162,10 +163,6 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   useEffect(() => {
     const runAITurn = async () => {
       // Safety Checks:
-      // 1. Must be AI turn
-      // 2. Must be in PLAYER_TURN phase (standard gameplay)
-      // 3. Must NOT be already processing a move (Race condition fix)
-      // 4. Must NOT have 2 cards on table already (Round ended)
       if (
         gameState.turn !== 'ai' || 
         gameState.phase !== GamePhase.PLAYER_TURN || 
@@ -181,15 +178,15 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       try {
         setGameState(prev => ({ ...prev, phase: GamePhase.AI_THINKING }));
         
-        // Faster thinking: 200ms to 500ms
-        await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+        // Dynamic game flow: very fast thinking (100-300ms)
+        await new Promise(r => setTimeout(r, 100 + Math.random() * 200));
 
         const move = await getAIMove(gameState);
         
         if (move.taunt) {
           setGameState(prev => ({ ...prev, aiTaunt: move.taunt }));
-          // Clear taunt faster (3s)
-          setTimeout(() => setGameState(prev => ({...prev, aiTaunt: null})), 3000);
+          // Clear taunt faster (2.5s)
+          setTimeout(() => setGameState(prev => ({...prev, aiTaunt: null})), 2500);
         }
 
         if (move.action === 'PLAY') {
@@ -203,11 +200,6 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       } catch (e) {
         console.error("AI Turn Error", e);
       } finally {
-        // Unlock happens after state updates in the handlers, but as a fallback:
-        // Note: The handlers (handleAIPlayCard) set state which triggers re-render.
-        // If turn changes to 'player', this effect won't run again, so 'true' is fine.
-        // If we set false here immediately, and state update is slow, it might double fire.
-        // We will release the lock only if something failed or turn didn't change (rare).
         if (gameState.turn === 'ai') {
            isAIProcessing.current = false;
         }
@@ -280,8 +272,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   const resolveTrick = async () => {
     setGameState(prev => ({ ...prev, phase: GamePhase.ROUND_RESULT }));
     
-    // Faster resolution (500ms)
-    await new Promise(r => setTimeout(r, 500));
+    // Snappy resolution (300ms)
+    await new Promise(r => setTimeout(r, 300));
 
     setGameState(prev => {
       const pPlayed = prev.tableCards.find(c => c.player === 'player');
@@ -394,8 +386,8 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       getAIReaction(gameState, 'player').then(reaction => {
           if (reaction) {
              setGameState(prev => ({...prev, aiTaunt: reaction}));
-             // Keep the defeat message a bit longer (5s)
-             setTimeout(() => setGameState(prev => ({...prev, aiTaunt: null})), 5000);
+             // Keep the defeat message a bit longer but not forever (3.5s)
+             setTimeout(() => setGameState(prev => ({...prev, aiTaunt: null})), 3500);
           }
       });
     }
@@ -407,9 +399,11 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       
       // Trigger animation
       setPointAnimation({ player: winner, points });
-      setTimeout(() => setPointAnimation(null), 1500);
+      setTimeout(() => setPointAnimation(null), 1000);
 
-      showNotification(`${winner === 'player' ? 'Você' : 'Computador'} venceu a mão!`, 2000);
+      if (winner === 'ai') {
+          showNotification('Computador venceu a mão!', 1500);
+      }
 
       if (newScoreP >= MAX_SCORE || newScoreAI >= MAX_SCORE) {
          return {
@@ -467,53 +461,27 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
     if (isAIProcessing.current) return;
     isAIProcessing.current = true;
 
-    setGameState(prev => ({ ...prev, aiTaunt: "Humm... deixe me pensar..." }));
-    
-    // Faster Truco response time (600ms)
-    await new Promise(r => setTimeout(r, 600));
+    try {
+        setGameState(prev => ({ ...prev, aiTaunt: "Humm..." }));
+        
+        // Fast Truco response (300ms)
+        await new Promise(r => setTimeout(r, 300));
 
-    const move = await getAIMove({ ...gameState, currentStakes: value }); 
-    
-    let action = move.action;
-    
-    // Security check: AI can't Raise if it has 11 points
-    if ((action === 'RAISE' || action === 'TRUCO') && gameState.scoreAI >= 11) {
-        action = 'PLAY'; // Fallback to play/accept logic logic below catches PLAY as weird response?
-        // Actually, for response, PLAY is invalid. It should be ACCEPT or RUN.
-        // Let's randomize accept/run if it tried to illegally raise
-        action = Math.random() > 0.5 ? 'ACCEPT' : 'RUN';
-    }
+        const move = await getAIMove({ ...gameState, currentStakes: value }); 
+        
+        let action = move.action;
+        
+        // Security check: AI can't Raise if it has 11 points
+        if ((action === 'RAISE' || action === 'TRUCO') && gameState.scoreAI >= 11) {
+            action = 'PLAY'; 
+            action = Math.random() > 0.5 ? 'ACCEPT' : 'RUN';
+        }
 
-    if (action === 'PLAY') action = Math.random() > 0.5 ? 'ACCEPT' : 'RUN';
+        if (action === 'PLAY') action = Math.random() > 0.5 ? 'ACCEPT' : 'RUN';
 
-    setGameState(prev => ({ ...prev, aiTaunt: move.taunt }));
+        setGameState(prev => ({ ...prev, aiTaunt: move.taunt }));
 
-    if (action === 'ACCEPT') {
-        // Accepting LOCKS the betting for the rest of the hand
-        setGameState(prev => ({
-            ...prev,
-            currentStakes: value as TrucoValue,
-            lastTrucoPlayer: 'player',
-            phase: GamePhase.PLAYER_TURN,
-            isBettingLocked: true
-        }));
-        showNotification("Computador aceitou!", 1000);
-    } else if (action === 'RUN') {
-        resolveHand('player');
-        showNotification("Computador correu!", 1000);
-    } else if (action === 'RAISE' || action === 'TRUCO') { 
-        playSound('truco');
-        const nextNextVal = getAvailableTrucoAction(value);
-        if (nextNextVal) {
-             setGameState(prev => ({
-                ...prev,
-                currentStakes: value as TrucoValue, 
-                phase: GamePhase.TRUCO_PROPOSAL_AI,
-                lastTrucoPlayer: 'ai' 
-             }));
-             showNotification(`Computador pediu ${nextNextVal === 6 ? 'MEIO PAU (6)' : nextNextVal}! Aceita?`);
-        } else {
-            // Cannot raise further (12)
+        if (action === 'ACCEPT') {
             setGameState(prev => ({
                 ...prev,
                 currentStakes: value as TrucoValue,
@@ -521,9 +489,38 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
                 phase: GamePhase.PLAYER_TURN,
                 isBettingLocked: true
             }));
+            showNotification("Computador aceitou!", 1000);
+        } else if (action === 'RUN') {
+            resolveHand('player');
+            showNotification("Computador correu!", 1000);
+        } else if (action === 'RAISE' || action === 'TRUCO') { 
+            playSound('truco');
+            const nextNextVal = getAvailableTrucoAction(value);
+            if (nextNextVal) {
+                setGameState(prev => ({
+                    ...prev,
+                    currentStakes: value as TrucoValue, 
+                    phase: GamePhase.TRUCO_PROPOSAL_AI,
+                    lastTrucoPlayer: 'ai' 
+                }));
+                showNotification(`Computador pediu ${nextNextVal === 6 ? 'MEIO PAU (6)' : nextNextVal}! Aceita?`);
+            } else {
+                setGameState(prev => ({
+                    ...prev,
+                    currentStakes: value as TrucoValue,
+                    lastTrucoPlayer: 'player',
+                    phase: GamePhase.PLAYER_TURN,
+                    isBettingLocked: true
+                }));
+            }
         }
+    } catch (e) {
+        console.error("AI Response Error", e);
+        // Fallback cleanup if disaster
+        setGameState(prev => ({ ...prev, phase: GamePhase.PLAYER_TURN }));
+    } finally {
+        isAIProcessing.current = false;
     }
-    isAIProcessing.current = false;
   };
 
   const handleAIProposeTruco = () => {
@@ -612,22 +609,33 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
   }
 
   // LOGIC FOR VISIBILITY OF TRUCO BUTTON
-  // 1. Must be player's turn to play (not responding to Truco)
-  // 2. Player cannot have raised last
-  // 3. Stakes must be < 12 (actually < 6 as per new rule, but strict check is !isBettingLocked)
-  // 4. Player score must be < 11 (Rule of 11)
-  // 5. Betting is not locked
   const isPlayerTurn = gameState.turn === 'player' && gameState.phase === GamePhase.PLAYER_TURN;
   const isTrucoResponse = gameState.phase === GamePhase.TRUCO_PROPOSAL_AI;
   const canCallTruco = isPlayerTurn && gameState.lastTrucoPlayer !== 'player' && gameState.currentStakes < 6 && !gameState.isBettingLocked && gameState.scorePlayer < 11;
   const isPlayerMao11 = gameState.scorePlayer === 11;
   const isAIMao11 = gameState.scoreAI === 11;
+  const isAIThinking = gameState.phase === GamePhase.AI_THINKING || gameState.phase === GamePhase.TRUCO_PROPOSAL_PLAYER;
 
   return (
     <div className="flex flex-col h-screen w-full relative overflow-hidden">
       
       {/* Confetti Animation */}
       {showConfetti && <Confetti />}
+
+      {/* Victory Flash Message */}
+      {showConfetti && (
+        <>
+            <div className="absolute inset-0 bg-white/20 animate-flash pointer-events-none z-30"></div>
+            <div className="absolute inset-0 flex items-center justify-center z-40 pointer-events-none">
+                <div className="flex flex-col items-center animate-victory-pop transform">
+                    <h1 className="text-6xl md:text-8xl font-display font-bold text-shine drop-shadow-[0_10px_10px_rgba(0,0,0,0.8)] tracking-wider">
+                        VITÓRIA!
+                    </h1>
+                    <div className="w-64 md:w-96 h-1 bg-gradient-to-r from-transparent via-yellow-400 to-transparent mt-4 shadow-[0_0_15px_#fbbf24]"></div>
+                </div>
+            </div>
+        </>
+      )}
 
       {/* History Log Overlay */}
       {showHistory && (
@@ -642,9 +650,10 @@ export const Game: React.FC<GameProps> = ({ difficulty, userExperience, onExit }
       {/* Top Bar: Score & Opponent */}
       <div className="flex justify-between items-center p-4 bg-black/30 backdrop-blur-sm relative z-40">
         <div className={`flex flex-col items-start relative p-2 rounded-xl transition-all duration-500 ${isAIMao11 ? 'bg-red-500/20 ring-1 ring-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : ''}`}>
-           <div className="flex items-center gap-1 mb-1">
+           <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs uppercase tracking-widest text-gray-300">Computador</span>
                 {isAIMao11 && <LockClosedIcon className="w-3 h-3 text-red-400 animate-pulse" title="Mão de 11" />}
+                {isAIThinking && <ArrowPathIcon className="w-4 h-4 text-yellow-400 animate-spin" />}
            </div>
            <div className="flex gap-1">
              {[...Array(gameState.scoreAI)].map((_, i) => (
